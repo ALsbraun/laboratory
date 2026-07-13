@@ -34,3 +34,16 @@ $ zip dist/laboratory.src.zip *.md config package* src
 ```
 
 This creates `dist/laboratory-chrome.zip` and `dist/laboratory-firefox.zip`.
+
+## Publishing a GitHub Release
+
+Pushing a version tag that matches `package.json` runs the release workflow. For example:
+
+```bash
+$ git tag v4.0.0
+$ git push origin v4.0.0
+```
+
+The workflow builds and validates both variants, then publishes versioned Chrome and Firefox ZIP files plus SHA-256 checksums on the corresponding GitHub Release. It can also be started manually from the Actions page with the matching version tag.
+
+GitHub Release packages are intended for sideloading: unzip the Chrome package and load it from `chrome://extensions` with Developer mode enabled. The Firefox package can be loaded temporarily from `about:debugging`; permanent Firefox installation requires Mozilla signing.
