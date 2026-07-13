@@ -28,6 +28,7 @@ export const defaultState = () => {
 /* the list of sites that Laboratory can't monitor */
 export const unmonitorableSites = [
   'addons.mozilla.org',
+  'chromewebstore.google.com',
   'discovery.addons.mozilla.org',
   'testpilot.firefox.com',
 ];

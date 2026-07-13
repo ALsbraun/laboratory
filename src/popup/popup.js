@@ -5,22 +5,25 @@ import ClipboardJS from 'clipboard';
 
 import { getCurrentTabHostname } from '../background_scripts/utils';
 
-/* bind to our backend window object */
-browser.runtime.getBackgroundPage().then(winder => {
-  window.Lab = winder.Lab;
-});
+let state;
+let builtCsp;
+
+const applyModel = model => {
+  state = model.state;
+  builtCsp = model.builtCsp;
+};
 
 
 const getCustomCsp = host => {
   return {
-    exists: window.Lab.state.config.customcspHosts.includes(host),
-    text: window.Lab.state.config.customcspRecords[host],
+    exists: state.config.customcspHosts.includes(host),
+    text: state.config.customcspRecords[host],
   };
 };
 
 
 const insertCspConfig = () => {
-  const strictness = window.Lab.state.config.strictness;
+  const strictness = state.config.strictness;
 
   // for each strictness level, we need to add a select for it
   Object.entries(strictness).forEach((kv) => {
@@ -34,7 +37,7 @@ const insertCspConfig = () => {
 
 
 const writeStrictnessToState = () => {
-  const strictness = window.Lab.state.config.strictness;
+  const strictness = state.config.strictness;
 
   // read in all the CSP config settings
   for (const row of document.getElementsByClassName('csp-form-control')) {
@@ -44,19 +47,7 @@ const writeStrictnessToState = () => {
 
 
 const insertCsp = host => {
-  let builtCSP;
-
-  // if we have a custom CSP, return that first
-  if (getCustomCsp(host).exists) {
-    builtCSP = {
-      records: {},
-      html: getCustomCsp(host).html || 'default-src \'none\'',
-      text: getCustomCsp(host).text || 'default-src \'none\'',
-    };
-  } else {
-    // get the host for the current tab and then insert its CSP
-    builtCSP = Lab.buildCsp(host);
-  }
+  const builtCSP = builtCsp;
 
   $('#csp-record').text(builtCSP.text);
 
@@ -87,40 +78,7 @@ const insertCsp = host => {
 
 const insertRecordingCount = () => {
   // insert the proper count of how many sites are being recorded
-  document.getElementById('csp-recording-count').textContent = window.Lab.state.config.recordingHosts.length.toString();
-};
-
-
-const toggleRecord = function toggleRecord(configRecord, host, enable) {
-  const record = window.Lab.state.config[configRecord];
-  const records = window.Lab.state.records;  // list of recorded URLs
-
-  // lets bail if you try to toggle the host on a weird thing (like moz-extension://)
-  if (!host) { return; }
-
-  // if it's in the hosts list + enable -> move on
-  // if it's not in the hosts list + disable -> move on
-  // this shouldn't happen, but we're guarding against it anyways
-  // also wtf does es6 not have a true logical xor operator?
-  if ((record.includes(host)) ^ !enable) {
-    console.error('Unexpected toggling for site encountered');
-    return;
-  }
-
-  if (enable) {
-    record.push(host);
-  } else {
-    // remove it from the list of monitored sites
-    record.splice(record.indexOf(host), 1);
-
-    // remove any previous records for a site, if we have any
-    if ((host in records) && (configRecord === 'hosts')) {
-      delete records[host];
-    }
-  }
-
-  // now we reinitialize the listeners
-  window.Lab.init();
+  document.getElementById('csp-recording-count').textContent = state.config.recordingHosts.length.toString();
 };
 
 
@@ -128,8 +86,8 @@ const toggleRecord = function toggleRecord(configRecord, host, enable) {
 const toggleToggler = (host) => {
   const states = {
     customcsp: getCustomCsp(host).exists,
-    enforced: window.Lab.state.config.enforcedHosts.includes(host),
-    recording: window.Lab.state.config.recordingHosts.includes(host),
+    enforced: state.config.enforcedHosts.includes(host),
+    recording: state.config.recordingHosts.includes(host),
   };
 
   // set all the toggler states
@@ -170,8 +128,13 @@ const toggleEvent = async (e) => {
   // get the toggle name
   const toggleId = e.target.id.split('-').pop();
 
-  // toggle the correct record, based on its id
-  toggleRecord(`${toggleId}Hosts`, host, e.target.checked);
+  const model = await browser.runtime.sendMessage({
+    type: 'laboratory:toggle',
+    host,
+    toggleId,
+    enabled: e.target.checked,
+  });
+  applyModel(model);
 
   // update the number of sites we're recording
   insertRecordingCount();
@@ -184,13 +147,14 @@ const toggleEvent = async (e) => {
   // set the toggle dependencies
   toggleToggler(host);
 
-  // flush the changes to disk and then insert the current CSP
-  window.Lab.writeLocalState().then(() => insertCsp(host));
+  insertCsp(host);
 };
 
 
 const handleDOMContentLoaded = async (reload = false) => {
   const host = await getCurrentTabHostname();
+  const model = await browser.runtime.sendMessage({ type: 'laboratory:get-model', host });
+  applyModel(model);
 
   // set the correct number of recorded hosts
   insertRecordingCount();
@@ -203,25 +167,21 @@ const handleDOMContentLoaded = async (reload = false) => {
 
     // automatically focus on input in modal and set the input value
     $('#csp-customcsp-modal').on('shown.bs.modal', () => {
-      const v = window.Lab.state.config.customcspRecords[host] || 'default-src \'none\'';
+      const v = state.config.customcspRecords[host] || 'default-src \'none\'';
       $('#csp-customcsp-record').val(v).select();
     });
 
     // save the value of the custom CSP when we close the modal and refresh
     // the dom content
-    const save = () => {
+    const save = async () => {
       const v = $('#csp-customcsp-record').val().trim();
-
-      // if it's blank, remove it from the list of custom CSP hosts
-      if (v === '') {
-        window.Lab.state.config.customcspHosts.splice(
-          window.Lab.state.config.customcspHosts.indexOf(host), 1);
-        delete window.Lab.state.config.customcspRecords[host];
-      } else {
-        window.Lab.state.config.customcspRecords[host] = v;
-      }
-
-      handleDOMContentLoaded(true);
+      const updated = await browser.runtime.sendMessage({
+        type: 'laboratory:update-custom-csp',
+        host,
+        text: v,
+      });
+      applyModel(updated);
+      await handleDOMContentLoaded(true);
     };
 
     $('#csp-customcsp-save').on('click', save);
@@ -242,19 +202,23 @@ const handleDOMContentLoaded = async (reload = false) => {
     $('.csp-toggle').on('click', toggleEvent);
 
     // bind a listener for the trash icon to delete all records
-    $('#btn-trash').on('click', () => {
-      window.Lab.clearState();
-
-      window.Lab.writeLocalState().then(() => handleDOMContentLoaded(true));
+    $('#btn-trash').on('click', async () => {
+      const updated = await browser.runtime.sendMessage({ type: 'laboratory:clear-state', host });
+      applyModel(updated);
+      await handleDOMContentLoaded(true);
     });
 
     // bind a listener for every time we change a config setting
     // TODO: make this more generic
-    $('#csp-config').on('change', () => {
+    $('#csp-config').on('change', async () => {
       writeStrictnessToState();
-      Promise.all([window.Lab.writeLocalState(), getCurrentTabHostname()]).then(args => {
-        insertCsp(args[1]);
+      const updated = await browser.runtime.sendMessage({
+        type: 'laboratory:update-strictness',
+        host,
+        strictness: state.config.strictness,
       });
+      applyModel(updated);
+      insertCsp(host);
     });
   }
 

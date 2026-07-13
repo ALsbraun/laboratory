@@ -10,5 +10,9 @@ export const getCurrentTabHostname = async () => {
       currentWindow: true,
   });
 
-  return extractHostname(tab[0].url);
+  try {
+    return extractHostname(tab[0].url);
+  } catch (error) {
+    return '';
+  }
 };

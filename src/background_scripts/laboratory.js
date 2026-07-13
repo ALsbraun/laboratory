@@ -2,9 +2,25 @@ import * as browser from 'webextension-polyfill';
 import localForage from 'localforage';
 import { defaultState, unmonitorableSites } from './static';
 import { extractHostname } from './utils';
-import * as webRequest from './webrequest';
+
+const RECORDING_POLICY = 'default-src \'none\'; form-action \'none\'; connect-src \'none\'; font-src \'none\'; frame-src \'none\'; img-src \'none\'; manifest-src \'none\'; media-src \'none\'; object-src \'none\'; prefetch-src \'none\'; script-src \'none\'; style-src \'none\'; worker-src \'none\'';
+
+const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 class Lab {
+  constructor() {
+    this.state = undefined;
+    this.ready = this.initialize();
+  }
+
+
+  async initialize() {
+    this.state = await this.getLocalState();
+    await this.writeLocalState();
+    await this.syncNetworkRules();
+  }
+
+
   // get the list of all monitored sites in one way or another
   getActiveHosts() {
     const hosts = new Set([].concat(
@@ -28,59 +44,67 @@ class Lab {
   }
 
 
-  init() {
-    const hosts = this.getActiveHosts();
+  async syncNetworkRules() {
+    const oldRules = await browser.declarativeNetRequest.getDynamicRules();
+    const removeRuleIds = oldRules.map(rule => rule.id);
+    const hosts = [...this.getActiveHosts()].sort();
+    const addRules = hosts.map((host, index) => {
+      let header = 'content-security-policy-report-only';
+      let policy = RECORDING_POLICY;
 
-    // we create a listeners here to inject CSPRO headers
-    // we define it globally so that we don't have to keep recreating anonymous functions,
-    // which has the side effect of making it much easier to remove the listener
-    if (this.onHeadersReceivedListener === undefined) {
-      this.onHeadersReceivedListener = request => this.injectCspHeader(request);
-    }
+      if (this.state.config.customcspHosts.includes(host)) {
+        header = 'content-security-policy';
+        policy = this.state.config.customcspRecords[host] || 'default-src \'none\'';
+      } else if (this.state.config.enforcedHosts.includes(host)) {
+        header = 'content-security-policy';
+        policy = this.buildCsp(host).text;
+      }
 
-    // delete the old listeners, if we're listening
-    if (browser.webRequest.onHeadersReceived.hasListener(this.onHeadersReceivedListener)) {
-      browser.webRequest.onHeadersReceived.removeListener(this.onHeadersReceivedListener);
-    }
+      const otherHeader = header === 'content-security-policy'
+        ? 'content-security-policy-report-only'
+        : 'content-security-policy';
 
-    // we don't need to add any listeners if we're not yet monitoring any hosts
-    if (hosts === null) { return; }
-    if (hosts.size === 0) { return; }
+      return {
+        id: index + 1,
+        priority: 1,
+        action: {
+          type: 'modifyHeaders',
+          responseHeaders: [
+            { header: otherHeader, operation: 'remove' },
+            { header, operation: 'set', value: policy },
+          ],
+        },
+        condition: {
+          regexFilter: `^https?://${escapeRegex(host)}/`,
+          resourceTypes: ['main_frame', 'sub_frame'],
+        },
+      };
+    });
 
-    // listen for all requests and inject a CSPRO header
-    const urls = [];
-
-    for (const host of hosts) {
-      urls.push(`http://${host}/*`);
-      urls.push(`https://${host}/*`);
-      urls.push(`ftp://${host}/*`);
-      urls.push(`ws://${host}/*`);
-      urls.push(`wss://${host}/*`);
-    }
-
-    browser.webRequest.onHeadersReceived.addListener(
-      this.onHeadersReceivedListener,
-      { urls },
-      ['blocking', 'responseHeaders']
-    );
+    await browser.declarativeNetRequest.updateDynamicRules({ removeRuleIds, addRules });
   }
 
 
-  clearState() {
+  async clearState() {
     console.log('Laboratory: Clearing all local storage');
     this.state = defaultState();
+    await this.writeLocalState();
+    await this.syncNetworkRules();
   }
 
 
   async getLocalState() {
-    // if state already exists, we can just return that
-    if (this.state !== undefined) {
-      return this.state;
+    const stored = await browser.storage.local.get('state');
+    let state = stored.state;
+    if (state === undefined) {
+      try {
+        state = await localForage.getItem('state');
+      } catch (error) {
+        console.warn('Laboratory: Could not migrate legacy state', error);
+      }
     }
-
-    let state = await localForage.getItem('state');
-    if (state === null) {
-      return defaultState();
+    if (state === undefined || state === null) {
+      state = defaultState();
     }
 
     // let's loop through state and make sure everything is there
@@ -104,13 +128,8 @@ class Lab {
   }
 
 
-  setState(state) {
-    this.state = state;
-  }
-
-
   writeLocalState() {
-    return localForage.setItem('state', this.state);
+    return browser.storage.local.set({ state: this.state });
   }
 
 
@@ -157,8 +176,12 @@ class Lab {
       sources.forEach(source => {
         let mungedSource;
 
+        // Never weaken a generated policy with broad inline-code or eval permissions.
+        if (source === '\'unsafe-inline\'' || source === '\'unsafe-eval\'') { return; }
+
         // if it's a special case, we don't do processing - ws: and wss: are Firefox bugs
-        if (['\'unsafe-eval\'', '\'unsafe-inline\'', 'data:', 'ws:', 'wss:'].includes(source)) {
+        if (['\'unsafe-hashes\'', '\'strict-dynamic\'', 'data:', 'ws:', 'wss:'].includes(source)
+            || /^'sha(256|384|512)-[A-Za-z0-9+/]+={0,2}'$/.test(source)) {
           mungedSource = source;
         } else {
           uri = new URL(source);
@@ -236,17 +259,15 @@ class Lab {
     };
   }
 
-  ingestCspReport(request) {
-    const decoder = new TextDecoder('utf8');
+  ingestCspViolation(message) {
     const records = this.state.records;
+    const directive = message.directive.split(' ')[0].replace('-attr', '').replace('-elem', '');
+    const host = extractHostname(message.documentUrl);
+    let uri = message.blockedUri;
 
-    // parse the CSP report
-    const report = JSON.parse(decoder.decode(request.requestBody.raw[0].bytes))['csp-report'];
-
-    // for now, we remove -attr and -elem, due to Firefox bug 1529338
-    const directive = report['violated-directive'].split(' ')[0].replace('-attr', '').replace('-elem', '');
-    const host = extractHostname(report['document-uri']);
-    let uri = report['blocked-uri'];
+    if (!this.state.config.recordingHosts.includes(host) || !(directive in this.siteTemplate())) {
+      return;
+    }
 
     // sometimes when things inject into the DOM, the blocked uri returns weird values
     // lets simply return if that's the case
@@ -259,11 +280,11 @@ class Lab {
       case 'self':
       case 'inline':
       case '':
-        uri = '\'unsafe-inline\'';  // boo
-        break;
+        // Inline scripts and styles are captured by the content script as CSP hashes.
+        return;
       case 'eval':
-        uri = '\'unsafe-eval\'';
-        break;
+        // There is no secure CSP source expression that permits string evaluation.
+        return;
       case 'data':
         uri = 'data:';
         break;
@@ -292,79 +313,190 @@ class Lab {
       records[host][directive].push(uri);
     }
 
-    return { cancel: true };
+    return undefined;
   }
 
 
-  injectCspHeader(request) {
-    // Remove any existing CSP directives
-    webRequest.removeHeaders(request.responseHeaders, ['content-security-policy', 'content-security-policy-report-only']);
+  ingestInlineScriptHashes(message) {
+    const host = extractHostname(message.documentUrl);
+    const records = this.state.records;
 
-    // prevent CSP header caching due to the Firefox extension architecture
-    if (request.documentUrl === undefined) {
-      webRequest.removeHeaders(request.responseHeaders, ['cache-control', 'expires']);
-
-      request.responseHeaders.push({
-        name: 'Cache-Control',
-        value: 'no-cache, no-store, must-revalidate',
-      });
-
-      request.responseHeaders.push({
-        name: 'Expires',
-        value: new Date().toUTCString(),
-      });
+    if (!this.state.config.recordingHosts.includes(host)
+        || this.state.config.customcspHosts.includes(host)
+        || this.state.config.enforcedHosts.includes(host)) {
+      return;
     }
 
-    // get the request host name
-    const host = extractHostname(request.url);
-
-    // use the manually set CSP policy
-    if (this.state.config.customcspHosts.includes(host)) {
-      request.responseHeaders.push({
-        name: 'Content-Security-Policy',
-        value: this.state.config.customcspRecords[host],
-      });
+    if (!(host in records)) {
+      records[host] = this.siteTemplate();
     }
-    // if we're in enforcement mode, we inject an actual CSP header
-    else if (this.state.config.enforcedHosts.includes(host)) {
-      request.responseHeaders.push({
-        name: 'Content-Security-Policy',
-        value: this.buildCsp(host).text,
+
+    const sources = records[host]['script-src'];
+    const unsafeInlineIndex = sources.indexOf('\'unsafe-inline\'');
+    if (unsafeInlineIndex !== -1) {
+      sources.splice(unsafeInlineIndex, 1);
+    }
+
+    message.hashes
+      .filter(hash => /^[A-Za-z0-9+/]+={0,2}$/.test(hash))
+      .map(hash => `'sha256-${hash}'`)
+      .forEach(source => {
+        if (!sources.includes(source)) { sources.push(source); }
       });
+
+    if (message.includesEventHandlers && !sources.includes('\'unsafe-hashes\'')) {
+      sources.push('\'unsafe-hashes\'');
+    }
+
+    const styleSources = records[host]['style-src'];
+    const unsafeStyleInlineIndex = styleSources.indexOf('\'unsafe-inline\'');
+    if (unsafeStyleInlineIndex !== -1) {
+      styleSources.splice(unsafeStyleInlineIndex, 1);
+    }
+
+    (message.styleHashes || [])
+      .filter(hash => /^[A-Za-z0-9+/]+={0,2}$/.test(hash))
+      .map(hash => `'sha256-${hash}'`)
+      .forEach(source => {
+        if (!styleSources.includes(source)) { styleSources.push(source); }
+      });
+
+    // CSP requires unsafe-hashes for hashed style attributes. Unlike unsafe-inline,
+    // this permits only the exact recorded attribute values.
+    if (message.includesStyleAttributes && !styleSources.includes('\'unsafe-hashes\'')) {
+      styleSources.push('\'unsafe-hashes\'');
+    }
+
+    if (message.hasParserInsertedExternalScripts) {
+      const strictDynamicIndex = sources.indexOf('\'strict-dynamic\'');
+      if (strictDynamicIndex !== -1) { sources.splice(strictDynamicIndex, 1); }
+    } else if (message.includesDynamicScripts && !sources.includes('\'strict-dynamic\'')) {
+      sources.push('\'strict-dynamic\'');
+    }
+  }
+
+
+  ingestScriptTopology(message) {
+    const host = extractHostname(message.documentUrl);
+    const site = this.state.records[host];
+    if (!site || !message.hasParserInsertedExternalScripts) { return; }
+    const sources = site['script-src'];
+    const index = sources.indexOf('\'strict-dynamic\'');
+    if (index !== -1) { sources.splice(index, 1); }
+  }
+
+
+  getModel(host) {
+    const custom = this.state.config.customcspHosts.includes(host);
+    const builtCsp = custom
+      ? {
+        records: {},
+        html: this.state.config.customcspRecords[host] || 'default-src \'none\'',
+        text: this.state.config.customcspRecords[host] || 'default-src \'none\'',
+      }
+      : this.buildCsp(host);
+    return { state: this.state, builtCsp };
+  }
+
+
+  async toggle(host, toggleId, enabled) {
+    const record = this.state.config[`${toggleId}Hosts`];
+    if (!record || !host) { return this.getModel(host); }
+
+    const index = record.indexOf(host);
+    if (enabled && index === -1) {
+      record.push(host);
+    } else if (!enabled && index !== -1) {
+      record.splice(index, 1);
+    }
+
+    await this.writeLocalState();
+    await this.syncNetworkRules();
+    return this.getModel(host);
+  }
+
+
+  async updateCustomCsp(host, text) {
+    const hosts = this.state.config.customcspHosts;
+    const index = hosts.indexOf(host);
+    if (text === '') {
+      if (index !== -1) { hosts.splice(index, 1); }
+      delete this.state.config.customcspRecords[host];
     } else {
-      // otherwise, we inject a fake report-only header
-      // this tells the browser to block all non-network requests in report only mode
-      request.responseHeaders.push({
-        name: 'Content-Security-Policy-Report-Only',
-        value: 'default-src \'none\'; form-action \'none\'; connect-src \'none\'; font-src \'none\'; frame-src \'none\'; img-src \'none\'; manifest-src \'none\'; media-src \'none\'; object-src \'none\'; prefetch-src \'none\'; script-src \'none\'; style-src \'none\'; worker-src \'none\'; report-uri /laboratory-fake-csp-report',
-      });
+      if (index === -1) { hosts.push(host); }
+      this.state.config.customcspRecords[host] = text;
     }
+    await this.writeLocalState();
+    await this.syncNetworkRules();
+    return this.getModel(host);
+  }
 
-    return { responseHeaders: request.responseHeaders };
+
+  async updateStrictness(host, strictness) {
+    this.state.config.strictness = Object.assign(this.state.config.strictness, strictness);
+    await this.writeLocalState();
+    await this.syncNetworkRules();
+    return this.getModel(host);
   }
 }
 
 
 console.log('Laboratory: Initializing');
 const lab = new Lab();
-lab.getLocalState().then(state => lab.setState(state)).then(() => {
-  // expose state to the popup
-  Object.assign(window, {
-    Lab: lab,
-  });
+browser.runtime.onMessage.addListener(async message => {
+  await lab.ready;
+  if (!message || typeof message.type !== 'string') { return undefined; }
 
-  // we don't add/remove the ingester, simply because if it was in the midst of being
-  // toggled, it would send fake 404 requests to sites accidentally
-  browser.webRequest.onBeforeRequest.addListener(
-    request => lab.ingestCspReport(request),
-    { urls: ['*://*/laboratory-fake-csp-report'] },
-    ['blocking', 'requestBody']);
-
-  lab.init();
+  if (message.type === 'laboratory:inline-script-hashes'
+      && Array.isArray(message.hashes)
+      && (message.styleHashes === undefined || Array.isArray(message.styleHashes))
+      && typeof message.documentUrl === 'string') {
+    lab.ingestInlineScriptHashes(message);
+    await lab.writeLocalState();
+    return undefined;
+  }
+  if (message.type === 'laboratory:csp-violation'
+      && typeof message.documentUrl === 'string'
+      && typeof message.directive === 'string'
+      && typeof message.blockedUri === 'string') {
+    lab.ingestCspViolation(message);
+    await lab.writeLocalState();
+    return undefined;
+  }
+  if (message.type === 'laboratory:script-topology'
+      && typeof message.documentUrl === 'string') {
+    lab.ingestScriptTopology(message);
+    await lab.writeLocalState();
+    return undefined;
+  }
+  if (message.type === 'laboratory:get-model') {
+    return lab.getModel(message.host || '');
+  }
+  if (message.type === 'laboratory:is-recording') {
+    try {
+      const host = extractHostname(message.documentUrl || '');
+      return lab.state.config.recordingHosts.includes(host)
+        && !lab.state.config.customcspHosts.includes(host)
+        && !lab.state.config.enforcedHosts.includes(host);
+    } catch (error) {
+      return false;
+    }
+  }
+  if (message.type === 'laboratory:toggle') {
+    return lab.toggle(message.host || '', message.toggleId, Boolean(message.enabled));
+  }
+  if (message.type === 'laboratory:update-custom-csp') {
+    return lab.updateCustomCsp(message.host || '', message.text || '');
+  }
+  if (message.type === 'laboratory:update-strictness') {
+    return lab.updateStrictness(message.host || '', message.strictness || {});
+  }
+  if (message.type === 'laboratory:clear-state') {
+    await lab.clearState();
+    return lab.getModel(message.host || '');
+  }
+  return undefined;
 });
 
-
-/* Synchronize the local storage every time a page finishes loading */
-browser.webNavigation.onCompleted.addListener(async () => {
-  await lab.writeLocalState();
-});
+browser.runtime.onInstalled.addListener(() => lab.ready.then(() => lab.syncNetworkRules()));
+browser.runtime.onStartup.addListener(() => lab.ready.then(() => lab.syncNetworkRules()));
