@@ -1,0 +1,38 @@
+name: Prepare release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-please-master
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Update release PR or publish merged release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Use a repository-scoped token so PR checks and tag workflows are triggered.
+      # GitHub suppresses those events when they originate from GITHUB_TOKEN.
+      - name: Check release automation token
+        env:
+          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          if [ -z "$RELEASE_PLEASE_TOKEN" ]; then
+            echo "::error::Add the RELEASE_PLEASE_TOKEN repository secret. See README.md."
+            exit 1
+          fi
+      - name: Maintain release PR and publish merged release
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          target-branch: master
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
