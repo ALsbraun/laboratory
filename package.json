@@ -35,7 +35,7 @@
   "dependencies": {
     "bootstrap": "^5.3.9",
     "clipboard": "^2.0.11",
-    "jquery": "^3.7.1",
+    "jquery": "^4.0.0",
     "license-webpack-plugin": "^4.0.2",
     "localforage": "^1.10.0",
     "octicons": "^8.5.0",
