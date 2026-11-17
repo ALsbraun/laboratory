@@ -2,5 +2,27 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "enabledManagers": ["npm"],
+  "rangeStrategy": "bump",
+  "automerge": true,
+  "automergeType": "pr",
+  "automergeStrategy": "squash",
+  "platformAutomerge": true,
+  "ignoreTests": false,
+  "dependencyDashboardApproval": false,
+  "minimumReleaseAge": "0 days",
+  "prConcurrentLimit": 10,
+  "timezone": "Europe/Berlin",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"]
+  },
+  "packageRules": [
+    {
+      "description": "Merge all npm updates, including major versions, after required checks pass",
+      "matchUpdateTypes": ["major", "minor", "patch", "pin", "digest", "lockFileMaintenance", "rollback"],
+      "automerge": true
+    }
   ]
 }

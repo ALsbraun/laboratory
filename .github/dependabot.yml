@@ -6,22 +6,28 @@ updates:
       interval: weekly
       day: monday
       time: "06:00"
-      timezone: Europe/Zurich
-    open-pull-requests-limit: 10
+      timezone: Europe/Berlin
+    # Renovate owns routine npm updates; Dependabot handles security fixes.
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: deps
     groups:
-      babel:
+      npm-security:
+        applies-to: security-updates
         patterns:
-          - "@babel/*"
-          - "babel-loader"
-      webpack:
-        patterns:
-          - "webpack"
-          - "webpack-cli"
-          - "*webpack-plugin"
+          - "*"
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: monthly
-      time: "06:00"
-      timezone: Europe/Zurich
+      interval: weekly
+      day: monday
+      time: "06:30"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      github-actions:
+        patterns:
+          - "*"
