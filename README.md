@@ -35,6 +35,42 @@ $ zip dist/laboratory.src.zip *.md config package* src
 
 This creates `dist/laboratory-chrome.zip` and `dist/laboratory-firefox.zip`.
 
+## Automated maintenance and checks
+
+Every pull request builds and validates both browser extensions, reviews dependency
+changes for newly introduced vulnerabilities of moderate severity or higher, and
+runs CodeQL JavaScript analysis. CI retains the Chrome and Firefox ZIP files as
+downloadable artifacts for 14 days. CodeQL also runs on `master` and every Monday.
+
+Renovate manages npm version updates (including major versions) and weekly lockfile
+maintenance. Dependabot manages weekly GitHub Actions updates and npm security
+fixes, so the bots do not both open routine npm version updates. Dependabot security
+updates require the dependency graph, Dependabot alerts, and Dependabot security
+updates to be enabled in GitHub's security settings.
+
+Both bots use GitHub native auto-merge with squash merging. Before merging this
+configuration, let the checks run on its pull request, then configure the repository:
+
+1. In **Settings → Rules → Rulesets**, add these required checks to the active
+   ruleset for `master` (select **GitHub Actions** as their source):
+   - `Build and validate extensions`
+   - `Review dependency changes`
+   - `Analyze JavaScript`
+2. Keep **Require branches to be up to date before merging** enabled, and use zero
+   required approving reviews for unattended bot merges.
+3. In **Settings → General → Pull Requests**, enable **Allow squash merging** and
+   **Allow auto-merge**. Optionally enable automatic deletion of merged branches.
+4. Ensure Renovate is installed for this repository and GitHub Actions is enabled.
+   Use CodeQL's advanced setup for the checked-in workflow rather than also
+   enabling default setup.
+
+The Dependabot workflow checks that all three required checks are configured before
+enabling auto-merge. It uses the base branch workflow and never executes PR code with
+write permissions. Renovate's native auto-merge also depends on the required-check
+ruleset; do not leave its required-check list empty. New or updated dependency PRs
+will merge once these checks pass. Existing Dependabot PRs can be rebased to trigger
+the new automation after this configuration lands.
+
 ## Publishing a GitHub Release
 
 Pushing a version tag that matches `package.json` runs the release workflow. For example:
