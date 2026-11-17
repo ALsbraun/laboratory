@@ -22,6 +22,7 @@ jobs:
       issues: write
       pull-requests: write
       actions: write
+      statuses: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created == 'true' || steps.publish.outputs.release_created == 'true' }}
       tag_name: ${{ steps.publish.outputs.tag_name || steps.release.outputs.tag_name }}
@@ -71,8 +72,25 @@ jobs:
               throw new Error('Release PR contains unexpected files; refusing automatic merge.');
             }
             const workflows = ['ci.yml', 'codeql.yml', 'dependency-review.yml'];
+            const contexts = {
+              'ci.yml': 'Build and validate extensions',
+              'codeql.yml': 'Analyze JavaScript',
+              'dependency-review.yml': 'Review dependency changes'
+            };
+            // Dispatch job checks do not satisfy PR rules. Report their verified
+            // results as commit statuses on exactly the tested PR head instead.
+            const report = async (workflow_id, state, target_url) => {
+              await github.rest.repos.createCommitStatus({
+                owner, repo, sha: pr.head.sha, state,
+                context: contexts[workflow_id],
+                description: state === 'pending' ? 'Release validation running' :
+                  state === 'success' ? 'Release validation passed' : 'Release validation failed',
+                ...(target_url ? { target_url } : {})
+              });
+            };
             const baselines = new Map();
             for (const workflow_id of workflows) {
+              await report(workflow_id, 'pending');
               const { data } = await github.rest.actions.listWorkflowRuns({
                 owner, repo, workflow_id, head_sha: pr.head.sha,
                 event: 'workflow_dispatch', per_page: 100
@@ -98,8 +116,18 @@ jobs:
                   run.id > baselines.get(workflow_id) && run.head_sha === pr.head.sha);
                 if (!run || run.status !== 'completed') continue;
                 if (run.conclusion !== 'success') {
+                  await report(workflow_id, 'failure', run.html_url);
                   throw new Error(`Release check ${workflow_id} failed: ${run.html_url}`);
                 }
+                const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                  owner, repo, run_id: run.id, filter: 'latest', per_page: 100
+                });
+                const requiredJobs = jobs.filter(job => job.name === contexts[workflow_id]);
+                if (requiredJobs.length !== 1 || requiredJobs[0].conclusion !== 'success') {
+                  await report(workflow_id, 'failure', run.html_url);
+                  throw new Error(`Required job did not pass: ${contexts[workflow_id]}`);
+                }
+                await report(workflow_id, 'success', run.html_url);
                 passed.add(workflow_id);
                 core.info(`Passed: ${workflow_id}`);
               }
@@ -119,11 +147,21 @@ jobs:
               return;
             }
             // Expected SHA and branch rules prevent merging stale or untested changes.
-            const { data: merged } = await github.rest.pulls.merge({
-              owner, repo, pull_number: pr.number,
-              sha: pr.head.sha, merge_method: 'squash'
-            });
-            if (!merged.merged) throw new Error(merged.message);
+            // GitHub may need a moment to recalculate protection after statuses arrive.
+            let merged;
+            for (let attempt = 0; attempt < 12; attempt++) {
+              try {
+                ({ data: merged } = await github.rest.pulls.merge({
+                  owner, repo, pull_number: pr.number,
+                  sha: pr.head.sha, merge_method: 'squash'
+                }));
+                break;
+              } catch (error) {
+                if (error.status !== 405 || attempt === 11) throw error;
+                await new Promise(resolve => setTimeout(resolve, 5000));
+              }
+            }
+            if (!merged?.merged) throw new Error(merged?.message || 'Release PR was not merged.');
             core.setOutput('merged', 'true');
 
       # GITHUB_TOKEN merges do not trigger another push run; publish here instead.
