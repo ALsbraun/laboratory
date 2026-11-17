@@ -1,12 +1,16 @@
 import * as browser from 'webextension-polyfill';
 import $ from 'jquery';
-import 'bootstrap';
+import { Modal, Popover, Tooltip } from 'bootstrap';
 import ClipboardJS from 'clipboard';
 
 import { getCurrentTabHostname } from '../background_scripts/utils';
 
 let state;
 let builtCsp;
+
+const customCspModal = () => Modal.getOrCreateInstance(
+  document.getElementById('csp-customcsp-modal')
+);
 
 const applyModel = model => {
   state = model.state;
@@ -52,11 +56,14 @@ const insertCsp = host => {
   $('#csp-record').text(builtCSP.text);
 
   // enable tooltips, if they are a reasonable length
-  if (builtCSP.text.length < 768) {
-    $('#csp-col').attr('data-original-title', builtCSP.html).tooltip();
-  } else {
-    $('#csp-col').attr('data-original-title', 'CSP policy is too long to display in this tooltip, sorry!<br><br>But hey, thanks for being <strong>awesome</strong> and trying out Laboratory!').tooltip();
-  }
+  const cspColumn = document.getElementById('csp-col');
+  Tooltip.getInstance(cspColumn)?.dispose();
+  new Tooltip(cspColumn, {
+    html: true,
+    placement: 'bottom',
+    title: builtCSP.text.length < 768 ? builtCSP.html :
+      'CSP policy is too long to display in this tooltip, sorry!<br><br>But hey, thanks for being <strong>awesome</strong> and trying out Laboratory!'
+  });
 
   // TODO: make sure things are clear if you're using unsafe-inline
   if ('script-src' in builtCSP.records) {
@@ -141,7 +148,7 @@ const toggleEvent = async (e) => {
 
   // if we're triggering the custom CSP, pop up the modal if needed
   if (toggleId === 'customcsp' && e.target.checked) {
-    $('#csp-customcsp-modal').modal();
+    customCspModal().show();
   }
 
   // set the toggle dependencies
@@ -163,10 +170,10 @@ const handleDOMContentLoaded = async (reload = false) => {
     /* BEGIN MODAL CODE */
 
     // the custom CSP edit button
-    $('#csp-btn-edit').on('click', () => { $('#csp-customcsp-modal').modal(); });
+    $('#csp-btn-edit').on('click', () => { customCspModal().show(); });
 
     // automatically focus on input in modal and set the input value
-    $('#csp-customcsp-modal').on('shown.bs.modal', () => {
+    document.getElementById('csp-customcsp-modal').addEventListener('shown.bs.modal', () => {
       const v = state.config.customcspRecords[host] || 'default-src \'none\'';
       $('#csp-customcsp-record').val(v).select();
     });
@@ -188,7 +195,7 @@ const handleDOMContentLoaded = async (reload = false) => {
     $('#csp-customcsp-modal').on('keyup', e => {
       if (e.keyCode === 13) {
         save();
-        $('#csp-customcsp-modal').modal('hide');
+        customCspModal().hide();
       }
     });
 
@@ -245,17 +252,16 @@ const handleDOMContentLoaded = async (reload = false) => {
     $('#csp-config').addClass('hidden');
   }
 
-  // initialize all our clipboards
-  new ClipboardJS('.btn');
-
-  // initialize the copied button popover, and have it disappear after one second
-  $('#csp-btn-copy').popover({
-    html: true,
-  }).click(() => {
-    setTimeout(() => {
-      $('#csp-btn-copy').popover('hide');
-    }, 1000)
-  });
+  if (!reload) {
+    const copyButton = document.getElementById('csp-btn-copy');
+    new ClipboardJS(copyButton);
+    const popover = Popover.getOrCreateInstance(copyButton, { html: true });
+    let hidePopover;
+    copyButton.addEventListener('click', () => {
+      clearTimeout(hidePopover);
+      hidePopover = setTimeout(() => popover.hide(), 1000);
+    });
+  }
 };
 
 

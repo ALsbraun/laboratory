@@ -14,15 +14,15 @@
           <div class="modal-content">
             <div class="modal-header">
               <h4 class="modal-title">Custom CSP Policy</h4>
-              <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
               <input type="text" class="form-control" id="csp-customcsp-record">
             </div>
             <div class="modal-footer">
-              <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+              <button type="button" class="btn btn-default" data-bs-dismiss="modal">Close</button>
               <button type="button" class="btn btn-default" id="csp-customcsp-clear">Clear</button>
-              <button type="button" class="btn btn-primary" id="csp-customcsp-save" data-dismiss="modal"><img class="octicon inverted" src="octicons/desktop-download.svg"> Save Policy</button>
+              <button type="button" class="btn btn-primary" id="csp-customcsp-save" data-bs-dismiss="modal"><img class="octicon inverted" src="octicons/desktop-download-16.svg"> Save Policy</button>
             </div>
           </div>
         </div>
@@ -54,21 +54,21 @@
           <div class="row">
             <div class="csp-col-header csp-copy-item">Generated CSP configuration:</div>
             <div class="csp-col-header csp-edit-item hidden">Custom CSP configuration:</div>
-            <div id="csp-col" class="col-10" data-toggle="tooltip" data-placement="bottom" data-html="true">
+            <div id="csp-col" class="col-10" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true">
               <samp id="csp-record"></samp>
             </div>
-            <div class="col-2 pr-0 hidden csp-edit-item">
-              <button type="button" id="csp-btn-edit" class="btn btn-default btn-md h-100 pull-right">
-                <img class="octicon" src="octicons/pencil.svg"> Edit
+            <div class="col-2 pe-0 hidden csp-edit-item">
+              <button type="button" id="csp-btn-edit" class="btn btn-default btn-md h-100 float-end">
+                <img class="octicon" src="octicons/pencil-16.svg"> Edit
               </button>
             </div>
-            <div class="col-2 pr-0 csp-copy-item">
-              <button type="button" id="csp-btn-copy" class="btn btn-default btn-md h-100 pull-right" data-clipboard-target="#csp-record" data-toggle="popover" data-placement="top" data-content="<strong>Copied!</strong>">
-                <img class="octicon" src="octicons/clippy.svg"> Copy
+            <div class="col-2 pe-0 csp-copy-item">
+              <button type="button" id="csp-btn-copy" class="btn btn-default btn-md h-100 float-end" data-clipboard-target="#csp-record" data-bs-toggle="popover" data-bs-placement="top" data-bs-content="<strong>Copied!</strong>">
+                <img class="octicon" src="octicons/copy-16.svg"> Copy
               </button>
             </div>
             <div id="csp-row-unsafe-inline-warning" class="hidden">
-              <img class="octicon" src="octicons/alert.svg">
+              <img class="octicon" src="octicons/alert-16.svg">
               <div>
                 Generated CSP uses <code>'unsafe-inline'</code>, <code>'unsafe-eval'</code> or <code>data:</code> inside <code>script-src</code>.<br><span id="csp-row-unsafe-inline-warning-indent">This limits its ability to protect against cross-site scripting attacks.</span>
               </div>
@@ -261,8 +261,8 @@
             Currently recording <strong><span id="csp-recording-count">0</span></strong> site(s)
           </div>
           <div class="col-6">
-            <button type="button" id="btn-trash" class="btn btn-default btn-md float-right" aria-label="Delete All Records">
-              <img class="octicon" src="octicons/trashcan.svg"> Delete All Settings
+            <button type="button" id="btn-trash" class="btn btn-default btn-md float-end" aria-label="Delete All Records">
+              <img class="octicon" src="octicons/trash-16.svg"> Delete All Settings
             </button>
           </div>
         </div>

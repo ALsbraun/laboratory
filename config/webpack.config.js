@@ -5,6 +5,7 @@ const webpack = require('webpack');
 
 module.exports = (env = {}, argv) => ({
   output: {
+    clean: true,
     path: path.resolve(__dirname, '..', 'build'),
     filename: '[name].js'
   },
@@ -57,9 +58,13 @@ module.exports = (env = {}, argv) => ({
         from: 'node_modules/bootstrap/dist/css/bootstrap.min.css',
         to: 'popup/',
       },
-      {
-        from: 'node_modules/octicons/build/svg/*.svg',
+      ...['desktop-download', 'pencil', 'copy', 'alert', 'trash'].map(icon => ({
+        from: `node_modules/@primer/octicons/build/svg/${icon}-16.svg`,
         to: 'popup/octicons/[name][ext]'
+      })),
+      {
+        from: 'node_modules/@primer/octicons/LICENSE',
+        to: 'popup/octicons/LICENSE.txt'
       },
       {
         from: 'src/content_scripts/*.js',
