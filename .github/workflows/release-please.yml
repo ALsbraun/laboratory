@@ -1,0 +1,189 @@
+name: Prepare release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-please-master
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Update release PR or publish merged release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: write
+      statuses: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created == 'true' || steps.publish.outputs.release_created == 'true' }}
+      tag_name: ${{ steps.publish.outputs.tag_name || steps.release.outputs.tag_name }}
+    steps:
+      - name: Maintain release PR and publish merged release
+        id: release
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
+        with:
+          token: ${{ github.token }}
+          target-branch: master
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # Explicit dispatches are supported with GITHUB_TOKEN without PR-run approval.
+      # Never check out PR code in this job, which can write to the repository.
+      - name: Run release checks and merge after success
+        id: merge
+        if: ${{ steps.release.outputs.release_created != 'true' }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { data: pulls } = await github.rest.pulls.list({
+              owner, repo, state: 'open', base: 'master', per_page: 100
+            });
+            const candidates = pulls.filter(pr =>
+              pr.user.login === 'github-actions[bot]' &&
+              pr.head.repo?.full_name === `${owner}/${repo}` &&
+              pr.head.ref.startsWith('release-please--branches--master--') &&
+              pr.labels.some(label => label.name === 'autorelease: pending') &&
+              !pr.draft);
+            if (!candidates.length) {
+              core.info('No pending release PR.');
+              return;
+            }
+            if (candidates.length !== 1) throw new Error('Expected one release PR.');
+            const pr = candidates[0];
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner, repo, pull_number: pr.number, per_page: 100
+            });
+            const allowed = new Set([
+              'package.json', 'package-lock.json', 'CHANGELOG.md',
+              '.release-please-manifest.json',
+              'src/manifest.json', 'src/manifest.firefox.json'
+            ]);
+            if (!files.length || files.some(file => !allowed.has(file.filename))) {
+              throw new Error('Release PR contains unexpected files; refusing automatic merge.');
+            }
+            const workflows = ['ci.yml', 'codeql.yml', 'dependency-review.yml'];
+            const contexts = {
+              'ci.yml': 'Build and validate extensions',
+              'codeql.yml': 'Analyze JavaScript',
+              'dependency-review.yml': 'Review dependency changes'
+            };
+            // Dispatch job checks do not satisfy PR rules. Report their verified
+            // results as commit statuses on exactly the tested PR head instead.
+            const report = async (workflow_id, state, target_url) => {
+              await github.rest.repos.createCommitStatus({
+                owner, repo, sha: pr.head.sha, state,
+                context: contexts[workflow_id],
+                description: state === 'pending' ? 'Release validation running' :
+                  state === 'success' ? 'Release validation passed' : 'Release validation failed',
+                ...(target_url ? { target_url } : {})
+              });
+            };
+            const baselines = new Map();
+            for (const workflow_id of workflows) {
+              await report(workflow_id, 'pending');
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner, repo, workflow_id, head_sha: pr.head.sha,
+                event: 'workflow_dispatch', per_page: 100
+              });
+              baselines.set(workflow_id, Math.max(0, ...data.workflow_runs.map(run => run.id)));
+              await github.rest.actions.createWorkflowDispatch({
+                owner, repo, workflow_id, ref: pr.head.ref,
+                ...(workflow_id === 'dependency-review.yml' ? {
+                  inputs: { base_ref: pr.base.sha, head_ref: pr.head.sha }
+                } : {})
+              });
+            }
+            const deadline = Date.now() + 20 * 60 * 1000;
+            const passed = new Set();
+            while (passed.size < workflows.length) {
+              if (Date.now() >= deadline) throw new Error('Timed out waiting for release checks.');
+              for (const workflow_id of workflows.filter(id => !passed.has(id))) {
+                const { data } = await github.rest.actions.listWorkflowRuns({
+                  owner, repo, workflow_id, head_sha: pr.head.sha,
+                  event: 'workflow_dispatch', per_page: 100
+                });
+                const run = data.workflow_runs.find(run =>
+                  run.id > baselines.get(workflow_id) && run.head_sha === pr.head.sha);
+                if (!run || run.status !== 'completed') continue;
+                if (run.conclusion !== 'success') {
+                  await report(workflow_id, 'failure', run.html_url);
+                  throw new Error(`Release check ${workflow_id} failed: ${run.html_url}`);
+                }
+                const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                  owner, repo, run_id: run.id, filter: 'latest', per_page: 100
+                });
+                const requiredJobs = jobs.filter(job => job.name === contexts[workflow_id]);
+                if (requiredJobs.length !== 1 || requiredJobs[0].conclusion !== 'success') {
+                  await report(workflow_id, 'failure', run.html_url);
+                  throw new Error(`Required job did not pass: ${contexts[workflow_id]}`);
+                }
+                await report(workflow_id, 'success', run.html_url);
+                passed.add(workflow_id);
+                core.info(`Passed: ${workflow_id}`);
+              }
+              if (passed.size < workflows.length) {
+                await new Promise(resolve => setTimeout(resolve, 10000));
+              }
+            }
+            const { data: current } = await github.rest.pulls.get({
+              owner, repo, pull_number: pr.number
+            });
+            const { data: base } = await github.rest.repos.getBranch({
+              owner, repo, branch: 'master'
+            });
+            if (current.state !== 'open' || current.head.sha !== pr.head.sha ||
+                base.commit.sha !== pr.base.sha) {
+              core.info('PR or master changed during checks; the next run will retry.');
+              return;
+            }
+            // Expected SHA and branch rules prevent merging stale or untested changes.
+            // GitHub may need a moment to recalculate protection after statuses arrive.
+            let merged;
+            for (let attempt = 0; attempt < 12; attempt++) {
+              try {
+                ({ data: merged } = await github.rest.pulls.merge({
+                  owner, repo, pull_number: pr.number,
+                  sha: pr.head.sha, merge_method: 'squash'
+                }));
+                break;
+              } catch (error) {
+                if (error.status !== 405 || attempt === 11) throw error;
+                await new Promise(resolve => setTimeout(resolve, 5000));
+              }
+            }
+            if (!merged?.merged) throw new Error(merged?.message || 'Release PR was not merged.');
+            core.setOutput('merged', 'true');
+
+      # GITHUB_TOKEN merges do not trigger another push run; publish here instead.
+      - name: Publish the automatically merged release
+        id: publish
+        if: ${{ steps.merge.outputs.merged == 'true' }}
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
+        with:
+          token: ${{ github.token }}
+          target-branch: master
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          skip-github-pull-request: true
+
+  package-release:
+    name: Build and attach release downloads
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    permissions:
+      contents: write
+    # Call directly: tags created with GITHUB_TOKEN do not trigger push workflows.
+    uses: ./.github/workflows/release.yml
+    with:
+      release_tag: ${{ needs.release-please.outputs.tag_name }}
+

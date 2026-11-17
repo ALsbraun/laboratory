@@ -1,0 +1,13 @@
+Laboratory automatic releases
+
+1. Extract all files into the repository root, preserving the .github folder and dotfiles.
+2. Create a fine-grained personal access token restricted to ALsbraun/laboratory, with Contents, Pull requests, and Issues: Read and write.
+3. Save it as the repository Actions secret RELEASE_PLEASE_TOKEN. Do not put the token into any file.
+4. Commit these files with title: feat: automate release pull requests
+5. Merge the configuration into master. The Prepare release workflow creates or updates a release PR.
+6. Review and merge release PRs after the three existing required checks pass. A tag and release are created automatically; the existing release workflow builds and attaches browser ZIPs and checksums.
+
+No extra required check needs to be added. Browser-store publishing is not configured.
+See README.md for details, including conventional commit titles and manual release retries.
+
+Verified locally: workflow syntax, official configuration schemas, Renovate configuration, and patch/minor/major updates to package.json, package-lock.json and both browser manifests. Live GitHub execution requires the secret and merging the configuration.

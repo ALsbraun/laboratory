@@ -10,7 +10,8 @@ updates:
     # Renovate owns routine npm updates; Dependabot handles security fixes.
     open-pull-requests-limit: 0
     commit-message:
-      prefix: deps
+      prefix: fix
+      include: scope
     groups:
       npm-security:
         applies-to: security-updates
@@ -26,7 +27,8 @@ updates:
       timezone: Europe/Berlin
     open-pull-requests-limit: 5
     commit-message:
-      prefix: deps
+      prefix: fix
+      include: scope
     groups:
       github-actions:
         patterns:
