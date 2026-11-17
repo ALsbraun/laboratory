@@ -17,22 +17,32 @@ jobs:
     name: Update release PR or publish merged release
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
-      # Use a repository-scoped token so PR checks and tag workflows are triggered.
-      # GitHub suppresses those events when they originate from GITHUB_TOKEN.
-      - name: Check release automation token
-        env:
-          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-        run: |
-          if [ -z "$RELEASE_PLEASE_TOKEN" ]; then
-            echo "::error::Add the RELEASE_PLEASE_TOKEN repository secret. See README.md."
-            exit 1
-          fi
+      # Approve workflow runs on the generated release PR before merging it.
       - name: Maintain release PR and publish merged release
+        id: release
         uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
         with:
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          token: ${{ github.token }}
           target-branch: master
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  package-release:
+    name: Build and attach release downloads
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    permissions:
+      contents: write
+    # Call directly: tags created with GITHUB_TOKEN do not trigger push workflows.
+    uses: ./.github/workflows/release.yml
+    with:
+      release_tag: ${{ needs.release-please.outputs.tag_name }}
 
