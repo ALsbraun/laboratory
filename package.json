@@ -33,7 +33,7 @@
   },
   "homepage": "https://github.com/april/laboratory#readme",
   "dependencies": {
-    "bootstrap": "^4.6.2",
+    "bootstrap": "^5.3.9",
     "clipboard": "^2.0.11",
     "jquery": "^3.7.1",
     "license-webpack-plugin": "^4.0.2",
