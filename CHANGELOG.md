@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.1.1](https://github.com/ALsbraun/laboratory/compare/v4.1.0...v4.1.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* **popup:** migrate to Bootstrap 5 APIs and maintained Octicons ([4b4dea3](https://github.com/ALsbraun/laboratory/commit/4b4dea3f4018d2abd2d2782b6ab3685d7aa8ebda))
+
 ## [4.1.0](https://github.com/ALsbraun/laboratory/compare/v4.0.0...v4.1.0) (2026-11-17)
 
 
