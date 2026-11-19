@@ -1,5 +1,17 @@
 # Changelog
 
+## [4.2.0](https://github.com/ALsbraun/laboratory/compare/v4.1.3...v4.2.0) (2026-11-19)
+
+
+### Features
+
+* harden CSP generation and add nonce template export ([8acf310](https://github.com/ALsbraun/laboratory/commit/8acf310a1c589ec9eb86dd0bf2acb0e3bfe19b90))
+
+
+### Bug Fixes
+
+* **deps:** lock file maintenance ([#26](https://github.com/ALsbraun/laboratory/issues/26)) ([728184d](https://github.com/ALsbraun/laboratory/commit/728184de9ad2967e373338a1221d0182bfc1348b))
+
 ## [4.1.3](https://github.com/ALsbraun/laboratory/compare/v4.1.2...v4.1.3) (2026-11-17)
 
 
