@@ -42,32 +42,6 @@ hr {
   padding: 9.5px;
 }
 
-#csp-col.alert-danger {
-  background-color: #eed3d7;
-  border-color: #b94a48;
-  font-size: 13px;
-}
-
-#csp-row-unsafe-inline-warning {
-  font-weight: 600;
-  margin-bottom: -10px;
-  margin-top: 15px;
-  padding-left: 5px;
-}
-
-#csp-row-unsafe-inline-warning img.octicon {
-  margin-right: 4px;
-  margin-top: -1.5em;
-}
-
-#csp-row-unsafe-inline-warning div {
-  display: inline-block;
-}
-
-#csp-row-unsafe-inline-warning-indent {
-  padding-left: 34px;
-}
-
 .csp-col-header {
   margin-bottom: 10px;
 }

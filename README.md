@@ -7,7 +7,9 @@ Laboratory is a Firefox and Chrome WebExtension that helps you generate a proper
 
 Laboratory uses Manifest V3 and requires Chrome 121 or newer, Firefox 140 or newer on desktop, or Firefox 142 or newer on Android.
 
-While recording, Laboratory generates SHA-256 CSP sources for inline scripts, inline styles, and their attributes. It never generates `unsafe-inline` or `unsafe-eval`. For hashed event-handler or style attributes, it may add the narrowly scoped CSP `unsafe-hashes` keyword, which permits only the exact recorded hashes. It adds `strict-dynamic` only when a page with trusted hashes inserts additional scripts dynamically.
+Laboratory records the sources a site uses, including assets from external CDNs, and uses SHA-256 hashes for observed inline `<script>` and `<style>` elements. New profiles use path-level script and worker sources. Generated policies block inline event handlers, `style` attributes, and string evaluation. The extension preserves the site's CSP when recording and when enforcing a generated policy.
+
+Use **Copy nonce template** when inline blocks change often or the hash list is long. In your server renderer, replace `{{CSP_NONCE}}` with a fresh cryptographically random Base64 value of at least 128 bits on each HTML response. Use that same value in the CSP header and on the trusted inline `<script>` and `<style>` elements rendered by that response. Keep the header and markup in sync through caching, and avoid adding nonces to markup built from untrusted input. Review the recorded sources, form destinations, and `frame-ancestors` requirements, then deploy in report-only mode and exercise the site's flows before enforcing in production.
 
 ## Developing and Installing Locally
 

@@ -54,6 +54,7 @@ const insertCsp = host => {
   const builtCSP = builtCsp;
 
   $('#csp-record').text(builtCSP.text);
+  $('#csp-nonce-export').toggleClass('hidden', !builtCSP.nonceTemplate);
 
   // enable tooltips, if they are a reasonable length
   const cspColumn = document.getElementById('csp-col');
@@ -64,20 +65,6 @@ const insertCsp = host => {
     title: builtCSP.text.length < 768 ? builtCSP.html :
       'CSP policy is too long to display in this tooltip, sorry!<br><br>But hey, thanks for being <strong>awesome</strong> and trying out Laboratory!'
   });
-
-  // TODO: make sure things are clear if you're using unsafe-inline
-  if ('script-src' in builtCSP.records) {
-    if (builtCSP.records['script-src'].includes('\'unsafe-inline\'') ||
-        builtCSP.records['script-src'].includes('\'unsafe-eval\'') ||
-        builtCSP.records['script-src'].includes('data:')) {
-      // make the column look scary
-      $('#csp-col').addClass('alert-danger');
-      $('#csp-row-unsafe-inline-warning').removeClass('hidden');
-    } else {
-      $('#csp-col').removeClass('alert-danger');
-      $('#csp-row-unsafe-inline-warning').addClass('hidden');
-    }
-  }
 
   return builtCSP.records;
 };
@@ -253,13 +240,20 @@ const handleDOMContentLoaded = async (reload = false) => {
   }
 
   if (!reload) {
-    const copyButton = document.getElementById('csp-btn-copy');
-    new ClipboardJS(copyButton);
-    const popover = Popover.getOrCreateInstance(copyButton, { html: true });
-    let hidePopover;
-    copyButton.addEventListener('click', () => {
-      clearTimeout(hidePopover);
-      hidePopover = setTimeout(() => popover.hide(), 1000);
+    const copyOptions = {
+      'csp-btn-copy': () => builtCsp.text,
+      'csp-btn-copy-nonce': () => builtCsp.nonceTemplate,
+    };
+    Object.entries(copyOptions).forEach(([id, copyText]) => {
+      const button = document.getElementById(id);
+      const clipboard = new ClipboardJS(button, { text: copyText });
+      const popover = Popover.getOrCreateInstance(button, { html: true, trigger: 'manual' });
+      let hidePopover;
+      clipboard.on('success', () => {
+        popover.show();
+        clearTimeout(hidePopover);
+        hidePopover = setTimeout(() => popover.hide(), 1000);
+      });
     });
   }
 };

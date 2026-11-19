@@ -32,13 +32,13 @@
         <div class="form-check">
           <label id="csp-toggle-recording-label" class="form-check-label csp-toggle-label" for="csp-toggle-recording">
             <input class="form-check-input csp-toggle" id="csp-toggle-recording" type="checkbox">
-            Record this site (will disable existing CSP while recording)
+            Record this site in report-only mode
           </label>
         </div>
         <div class="form-check">
           <label id="csp-toggle-enforced-label" class="form-check-label csp-toggle-label" for="csp-toggle-enforced">
             <input class="form-check-input csp-toggle" id="csp-toggle-enforced" type="checkbox">
-            Enforce CSP policy (pauses further recording)
+            Enforce generated CSP alongside the site's policy
           </label>
         </div>
         <div class="form-check">
@@ -67,11 +67,11 @@
                 <img class="octicon" src="octicons/copy-16.svg"> Copy
               </button>
             </div>
-            <div id="csp-row-unsafe-inline-warning" class="hidden">
-              <img class="octicon" src="octicons/alert-16.svg">
-              <div>
-                Generated CSP uses <code>'unsafe-inline'</code>, <code>'unsafe-eval'</code> or <code>data:</code> inside <code>script-src</code>.<br><span id="csp-row-unsafe-inline-warning-indent">This limits its ability to protect against cross-site scripting attacks.</span>
-              </div>
+            <div id="csp-nonce-export" class="col-12 mt-2 hidden">
+              <button type="button" id="csp-btn-copy-nonce" class="btn btn-default btn-md" data-bs-toggle="popover" data-bs-placement="top" data-bs-content="<strong>Copied!</strong>">
+                <img class="octicon" src="octicons/copy-16.svg"> Copy nonce template
+              </button>
+              <div class="small text-muted mt-1">Requires a fresh server-generated nonce on each page response and matching <code>nonce</code> attributes on trusted inline blocks.</div>
             </div>
           </div>
         </div>

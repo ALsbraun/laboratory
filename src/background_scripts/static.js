@@ -16,9 +16,9 @@ export const defaultState = () => {
         'media-src': 'origin',
         'object-src': 'path',
         'prefetch-src': 'self-if-same-origin-else-path',
-        'script-src': 'self-if-same-origin-else-path',
+        'script-src': 'path',
         'style-src': 'self-if-same-origin-else-directory',
-        'worker-src': 'self-if-same-origin-else-path',
+        'worker-src': 'path',
       },
     },
     records: {},  // hosts -> sources mapping    
