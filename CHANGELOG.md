@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.2.1](https://github.com/ALsbraun/laboratory/compare/v4.2.0...v4.2.1) (2026-11-23)
+
+
+### Bug Fixes
+
+* **deps:** lock file maintenance ([#30](https://github.com/ALsbraun/laboratory/issues/30)) ([4ddb1da](https://github.com/ALsbraun/laboratory/commit/4ddb1dab7d920a1ecdd9ef2c56d7c3ad325fd093))
+
 ## [4.2.0](https://github.com/ALsbraun/laboratory/compare/v4.1.3...v4.2.0) (2026-11-19)
 
 
