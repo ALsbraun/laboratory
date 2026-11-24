@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.2.3](https://github.com/ALsbraun/laboratory/compare/v4.2.2...v4.2.3) (2026-11-24)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @primer/octicons to ^19.43.0 ([#34](https://github.com/ALsbraun/laboratory/issues/34)) ([c8ae892](https://github.com/ALsbraun/laboratory/commit/c8ae89231679a5628470438d7c7e3c15a2d9e2ad))
+
 ## [4.2.2](https://github.com/ALsbraun/laboratory/compare/v4.2.1...v4.2.2) (2026-11-23)
 
 
